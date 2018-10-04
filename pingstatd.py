@@ -1,5 +1,29 @@
 #!/usr/bin/env python
 
+# home: https://github.com/rndbit/pingstatd
+
+# MIT License
+#
+# Copyright (c) 2018 rndbit
+#
+# Permission is hereby granted, free of charge, to any person obtaining a copy
+# of this software and associated documentation files (the "Software"), to deal
+# in the Software without restriction, including without limitation the rights
+# to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+# copies of the Software, and to permit persons to whom the Software is
+# furnished to do so, subject to the following conditions:
+#
+# The above copyright notice and this permission notice shall be included in all
+# copies or substantial portions of the Software.
+#
+# THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+# IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+# FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+# AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+# LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+# OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+# SOFTWARE.
+
 import subprocess
 import binascii
 import os
@@ -9,6 +33,7 @@ import sys
 import socket
 import traceback
 import errno
+import time
 
 
 _EVENT_LOOKUP = {
@@ -21,8 +46,8 @@ _EVENT_LOOKUP = {
 
 
 def debug(msg):
-    sys.stderr.write(msg)
-    sys.stderr.write('\n')
+#    sys.stderr.write(msg)
+#    sys.stderr.write('\n')
     pass
 
 
@@ -70,14 +95,16 @@ class Epoll(object):
         self.epoll.modify(fd, flags)
 
 
-class PingProc(subprocess.Popen, PollEventHandler):
+#class PingOutputHandler(subprocess.Popen, PollEventHandler):
+class PingOutputHandler(PollEventHandler):
     epoll_flags = ( 0
             | select.EPOLLIN
             | select.EPOLLERR
             | select.EPOLLONESHOT
     )
 
-    def __init__(self, host, interval, epoll):
+    #def __init__(self, host, interval, epoll):
+    def __init__(self, ping_output, epoll):
 
         '''
         0 - created, reading header line to get started
@@ -97,6 +124,7 @@ class PingProc(subprocess.Popen, PollEventHandler):
         self.pong_count = 0
         self.error_count = 0
 
+        """
         ping_args = [
             '/bin/ping',
             '-f',
@@ -106,10 +134,13 @@ class PingProc(subprocess.Popen, PollEventHandler):
             '-i', str(interval),
             '-n', host,
         ]
-        super(PingProc, self).__init__(
+        super(PingOutputHandler, self).__init__(
             args = ping_args,
             bufsize = 0,
             stdout = subprocess.PIPE)
+"""
+
+        self.stdout = ping_output
 
         ### Set non-blocking
         # Get the already set flags
@@ -161,7 +192,7 @@ class PingProc(subprocess.Popen, PollEventHandler):
         if events & select.EPOLLHUP == select.EPOLLHUP:
             debug("err event")
             # Flush and destroy
-            self.communicate()
+#            self.communicate()
             sys.exit(0)
 
         epoll.modify(
@@ -246,7 +277,7 @@ class PingProc(subprocess.Popen, PollEventHandler):
         debug("read footer: byte_count={0} data=\"{1}\"".format(len(self.data), self.data))
 
 
-class ServerSocket(PollEventHandler):
+class ServerSocketHandler(PollEventHandler):
     def __init__(self, ip, port, ping_proc, epoll):
         _MAX_CONNECTION_BACKLOG = 1
 
@@ -263,8 +294,13 @@ class ServerSocket(PollEventHandler):
 
         self.ping_proc = ping_proc
 
+        self.start_time = time.time()
+
 
     def handle_poll_event(self, epoll, fd, events):
+        now_time = time.time()
+        uptime = int(now_time - self.start_time)
+
         client_socket, address = self.socket.accept()
         payload = ( ""
                 + "request_count={0}\n"
@@ -272,12 +308,14 @@ class ServerSocket(PollEventHandler):
                 + "error_count={2}\n"
                 + "host={3}\n"
                 + "address={4}\n"
+                + "uptime={5}\n"
             ).format(
                     self.ping_proc.ping_count,
                     self.ping_proc.pong_count,
                     self.ping_proc.error_count,
                     "TODO",
-                    "TODO")
+                    "TODO",
+                    uptime)
 
         ClientSocketHandler(
                 client_socket,
@@ -367,16 +405,33 @@ def _get_flag_names(flags):
     return names
 
 
+if len(sys.argv) != 3:
+    print("invalid args, need: prog bind_host bind_to_port")
+    sys.exit(1)
+
+bind_host = sys.argv[1]
+bind_port = sys.argv[2]
+try:
+    bind_port = (int)(bind_port)
+except:
+    print("invalid bind_port: {0}".format(bind_port))
+    sys.exit(1)
+
+if bind_port <= 0 or bind_port >= (2**16):
+    print("bind_port out of range: {0}".format(bind_port))
+    sys.exit(1)
+
 epoll = Epoll()
 
-ping = PingProc(
-        host = sys.argv[1],
-        interval = 0.5,
+ping = PingOutputHandler(
+        sys.stdin,
+#        host = sys.argv[1],
+#        interval = 0.5,
         epoll = epoll)
 
-server_socket = ServerSocket(
-        'google.ping.mrtg',
-        3000,
+server_socket = ServerSocketHandler(
+        bind_host,
+        bind_port,
         ping,
         epoll)
 
