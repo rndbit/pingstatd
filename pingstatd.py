@@ -33,6 +33,7 @@ import socket
 import traceback
 import errno
 import time
+import re
 
 
 _EVENT_LOOKUP = {
@@ -116,6 +117,8 @@ class PingOutputHandler(PollEventHandler):
         self.ping_count = 0
         self.pong_count = 0
         self.error_count = 0
+        self.host = 'unknown'
+        self.address = 'unknown'
 
         self.ping_output = ping_output
 
@@ -176,6 +179,17 @@ class PingOutputHandler(PollEventHandler):
         if (lf_index > -1):
             header = self.data[0:lf_index]
             debug("Read header: \"%s\"" % (header))
+
+            match = re.search(r'^PING ([^ ]*) \(([^\)]*)\)', header)
+            if match is None:
+                sys.stderr.write('Could not match target IP address from ping output\n')
+            else:
+                self.host = match.group(1)
+                self.address = match.group(2)
+                debug('From header matched: hostname=%s address=%s' % (
+                        self.host,
+                        self.address,
+                ))
 
             self.data = self.data[lf_index+1:]
             self.state = 1
@@ -284,8 +298,8 @@ class ServerSocketHandler(PollEventHandler):
                     self.ping_proc.ping_count,
                     self.ping_proc.pong_count,
                     self.ping_proc.error_count,
-                    "TODO",
-                    "TODO",
+                    self.ping_proc.host,
+                    self.ping_proc.address,
                     uptime)
 
         ClientSocketHandler(
