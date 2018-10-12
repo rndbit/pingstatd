@@ -83,7 +83,7 @@ class Epoll(object):
             fd = fdwork[0]
             events = fdwork[1]
             handler = self.fd_handlers[fd]
-            debug("Unblocked fd={0}, events={1}=[{2}]".format(fd, events, _get_flag_names(events)))
+            debug("Unblocked fd=%s, events=%s=[%r]" % (fd, events, _get_flag_names(events)))
             try:
                 handler.handle_poll_event(self, fd, events)
             except SystemExit as ex:
@@ -187,7 +187,7 @@ class PingOutputHandler(PollEventHandler):
                 self.read_footer()
                 pass
             else:
-                raise Exception('Unpexted state: {0}'.format(self.state))
+                raise Exception('Unpexted state: %d' % (self.state))
 
         if events & select.EPOLLHUP == select.EPOLLHUP:
             debug("err event")
@@ -204,14 +204,14 @@ class PingOutputHandler(PollEventHandler):
         lf_index = self.data.find('\n')
         if (lf_index > -1):
             header = self.data[0:lf_index]
-            debug("Read header: \"{0}\"".format(header))
+            debug("Read header: \"%s\"" % (header))
 
             self.data = self.data[lf_index+1:]
             self.state = 1
 
             if len(self.data) > 0:
                 data_hex = binascii.hexlify(self.data)
-                debug("Data remains after reading header, pass to read_header(): \"{0}\"".format(data_hex))
+                debug("Data remains after reading header, pass to read_header(): \"%s\"" % (data_hex))
                 self.read_ping()
 
 
@@ -221,60 +221,60 @@ class PingOutputHandler(PollEventHandler):
         while len(self.data) > 0:
             debug("read_ping loop pass")
 
-            if self.data.startswith(b'.'):
+            if self.data.startswith('.'):
                 self.ping_count += 1
                 self.data = self.data[1:]
-                debug("PING --> ping_count={0}, pong_count={1}, error_count={2}".format(self.ping_count, self.pong_count, self.error_count))
+                debug("PING --> ping_count=%d, pong_count=%d, error_count=%d" % (self.ping_count, self.pong_count, self.error_count))
                 continue
-            if self.data.startswith(b'\x08\x20\x08'):
+            if self.data.startswith('\x08\x20\x08'):
                 self.pong_count += 1
                 self.data = self.data[3:]
-                debug("PONG <-- ping_count={0}, pong_count={1}, error_count={2}".format(self.ping_count, self.pong_count, self.error_count))
+                debug("PONG <-- ping_count=%d, pong_count=%d, error_count=%d" % (self.ping_count, self.pong_count, self.error_count))
                 continue
-            if self.data.startswith(b'\x08E'):
+            if self.data.startswith('\x08E'):
                 self.error_count += 1
                 self.data = self.data[2:]
-                debug("ERROR    ping_count={0}, pong_count={1}, error_count={2}".format(self.ping_count, self.pong_count, self.error_count))
+                debug("ERROR    ping_count=%d, pong_count=%d, error_count=%d" % (self.ping_count, self.pong_count, self.error_count))
                 continue
-            if self.data.startswith(b'\x07'):
+            if self.data.startswith('\x07'):
                 self.data = self.data[1:]
                 debug("DROP bell")
                 continue
-            if self.data.startswith(b'\n'):
+            if self.data.startswith('\n'):
                 self.data = self.data[1:]
                 debug("EOL, ending?!")
                 self.state = 2
                 self.read_footer()
                 return
 
-            debug("Unexpected content, need to kill?: \"\\x:{0}\"".format(self.data))
+            debug("Unexpected content, need to kill?: \"\\x:%s\"" % (self.data))
             # Try to recover
             restart_index = len(self.data)
 
-            find_index = self.data.find(b'.', 1)
+            find_index = self.data.find('.', 1)
             if find_index > 0:
                 restart_index = min(restart_index, find_index)
 
-            find_index = self.data.find(b'\x08', 1)
+            find_index = self.data.find('\x08', 1)
             if find_index > 0:
                 restart_index = min(restart_index, find_index)
 
-            find_index = self.data.find(b'\x07', 1)
+            find_index = self.data.find('\x07', 1)
             if find_index > 0:
                 restart_index = min(restart_index, find_index)
 
-            debug("Discarding unexpected content: len={0} \\x\"{1}\", \"{2}\"".format(
+            debug("Discarding unexpected content: len=%d \\x\"%s\", \"%s\"" % (
                     restart_index,
                     self.data[0:restart_index],
                     self.data[0:restart_index])
             )
             self.data = self.data[restart_index:]
-            debug("Keeping after unexpected content: \\x\"{0}\", \"{1}\"".format(self.data, self.data))
+            debug("Keeping after unexpected content: \\x\"%s\", \"%s\"" % (self.data, self.data))
 
 
     def read_footer(self):
         # TODO find LF first
-        debug("read footer: byte_count={0} data=\"{1}\"".format(len(self.data), self.data))
+        debug("read footer: byte_count=%d data=\"%s\"" % (len(self.data), self.data))
 
 
 class ServerSocketHandler(PollEventHandler):
@@ -303,13 +303,13 @@ class ServerSocketHandler(PollEventHandler):
 
         client_socket, address = self.socket.accept()
         payload = ( ""
-                + "request_count={0}\n"
-                + "response_count={1}\n"
-                + "error_count={2}\n"
-                + "host={3}\n"
-                + "address={4}\n"
-                + "uptime={5}\n"
-            ).format(
+                + "request_count=%d\n"
+                + "response_count=%d\n"
+                + "error_count=%d\n"
+                + "host=%s\n"
+                + "address=%s\n"
+                + "uptime=%d\n"
+            ) % (
                     self.ping_proc.ping_count,
                     self.ping_proc.pong_count,
                     self.ping_proc.error_count,
@@ -358,16 +358,19 @@ class ClientSocketHandler(PollEventHandler):
             if ex.args[0] == errno.EWOULDBLOCK:
                 debug("Hit would-block, ignoring")
                 return
-            debug("Exception={1} send data: {0}".format(traceback.format_exc(), type(ex).__name__))
+            debug("Exception=%s send data: %s" % (
+                    type(ex).__name__,
+                    traceback.format_exc(),
+            ))
             # trigger shutdown
             self.payload = None
 
         if sent_count < len(self.payload):
-            debug("Sent bytes={0} of {1}".format(sent_count, len(self.payload)))
+            debug("Sent bytes=%d of %d" % (sent_count, len(self.payload)))
             self.payload = self.payload[sent_count:]
         else:
             self.payload = None
-            debug("Sent ALL byte_count={0}, closed".format(sent_count))
+            debug("Sent ALL byte_count=%d, closed" % (sent_count))
 
 
     def handle_poll_event(self, epoll, fd, events):
@@ -414,11 +417,11 @@ bind_port = sys.argv[2]
 try:
     bind_port = (int)(bind_port)
 except:
-    print("invalid bind_port: {0}".format(bind_port))
+    print("invalid bind_port: %d" % (bind_port))
     sys.exit(1)
 
 if bind_port <= 0 or bind_port >= (2**16):
-    print("bind_port out of range: {0}".format(bind_port))
+    print("bind_port out of range: %d" % (bind_port))
     sys.exit(1)
 
 epoll = Epoll()
