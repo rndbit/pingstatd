@@ -86,10 +86,11 @@ class Epoll(object):
             debug("Unblocked fd=%s, events=%s=[%r]" % (fd, events, _get_flag_names(events)))
             try:
                 handler.handle_poll_event(self, fd, events)
-            except SystemExit as ex:
-                raise ex
-            except BaseException as ex:
-                debug("Exception invoking handler in Epoll.poll: {0}".format(traceback.format_exc()))
+            except SystemExit:
+                raise
+            except:
+                debug("Exception invoking handler in Poll.poll: %s" % (traceback.format_exc()))
+
 
     def modify(self, fd, flags):
         self.epoll.modify(fd, flags)
