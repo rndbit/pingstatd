@@ -55,7 +55,7 @@ class PollEventHandler(object):
         raise Exception("method not implemented: handle_poll_event")
 
 
-class Poll(object):
+class PollHelper(object):
     def __init__(self):
         self.poll = select.poll()
         self.fd_handlers = {}
@@ -88,7 +88,7 @@ class Poll(object):
             except SystemExit:
                 raise
             except:
-                debug("Exception invoking handler in Poll.poll: %s" % (traceback.format_exc()))
+                debug("Exception invoking handler in PollHelper.poll_dispatch: %s" % (traceback.format_exc()))
 
 
 class PingOutputHandler(PollEventHandler):
@@ -389,7 +389,7 @@ if bind_port <= 0 or bind_port >= (2**16):
     print("bind_port out of range: %d" % (bind_port))
     sys.exit(1)
 
-poll = Poll()
+poll = PollHelper()
 
 ping = PingOutputHandler(
         sys.stdin,
