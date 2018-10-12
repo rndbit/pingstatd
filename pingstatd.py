@@ -425,4 +425,4 @@ server_socket = ServerSocketHandler(
         poll)
 
 while True:
-    poll_results = poll.poll_dispatch()
+    poll.poll_dispatch()
