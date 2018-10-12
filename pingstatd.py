@@ -37,11 +37,11 @@ import time
 
 
 _EVENT_LOOKUP = {
-    select.EPOLLIN: 'POLLIN',
-    select.EPOLLOUT: 'POLLOUT',
-    select.EPOLLPRI: 'POLLPRI',
-    select.EPOLLERR: 'POLLERR',
-    select.EPOLLHUP: 'POLLHUP',
+    select.POLLIN: 'POLLIN',
+    select.POLLOUT: 'POLLOUT',
+    select.POLLPRI: 'POLLPRI',
+    select.POLLERR: 'POLLERR',
+    select.POLLHUP: 'POLLHUP',
 }
 
 
@@ -52,28 +52,28 @@ def debug(msg):
 
 
 class PollEventHandler(object):
-    def handle_poll_event(self, epoll, fd, events):
+    def handle_poll_event(self, poll, fd, events):
         raise Exception("method not implemented: handle_poll_event")
 
 
-class Epoll(object):
+class Poll(object):
     def __init__(self):
-        self.epoll = select.epoll()
+        self.poll = select.poll()
         self.fd_handlers = {}
 
 
     def register(self, fd, flags, handler = None):
-        self.epoll.register(fd, flags)
+        self.poll.register(fd, flags)
         self.fd_handlers[fd] = handler
 
 
     def unregister(self, fd):
-        self.epoll.unregister(fd)
+        self.poll.unregister(fd)
         del self.fd_handlers[fd]
 
 
     def poll(self):
-        poll_results = self.epoll.poll()
+        poll_results = self.poll.poll()
 
         if len(poll_results) == 0:
             debug("Empty poll result")
@@ -92,20 +92,15 @@ class Epoll(object):
                 debug("Exception invoking handler in Poll.poll: %s" % (traceback.format_exc()))
 
 
-    def modify(self, fd, flags):
-        self.epoll.modify(fd, flags)
-
-
 #class PingOutputHandler(subprocess.Popen, PollEventHandler):
 class PingOutputHandler(PollEventHandler):
-    epoll_flags = ( 0
-            | select.EPOLLIN
-            | select.EPOLLERR
-            | select.EPOLLONESHOT
+    _poll_flags = ( 0
+            | select.POLLIN
+            | select.POLLERR
     )
 
-    #def __init__(self, host, interval, epoll):
-    def __init__(self, ping_output, epoll):
+    #def __init__(self, host, interval, poll):
+    def __init__(self, ping_output, poll):
 
         '''
         0 - created, reading header line to get started
@@ -154,15 +149,15 @@ class PingOutputHandler(PollEventHandler):
                 fcntl.F_SETFL,
                 flags | os.O_NONBLOCK)
 
-        epoll.register(
+        poll.register(
                 self.stdout.fileno(),
-                self.epoll_flags,
+                self._poll_flags,
                 self)
 
 
-    def handle_poll_event(self, epoll, fd, events):
+    def handle_poll_event(self, poll, fd, events):
 
-        if events & select.EPOLLIN == select.EPOLLIN:
+        if events & select.POLLIN == select.POLLIN:
             debug("read event")
 
             data = None
@@ -190,15 +185,11 @@ class PingOutputHandler(PollEventHandler):
             else:
                 raise Exception('Unpexted state: %d' % (self.state))
 
-        if events & select.EPOLLHUP == select.EPOLLHUP:
+        if events & select.POLLHUP == select.POLLHUP:
             debug("err event")
             # Flush and destroy
 #            self.communicate()
             sys.exit(0)
-
-        epoll.modify(
-                self.stdout.fileno(),
-                self.epoll_flags)
 
 
     def read_header(self):
@@ -279,7 +270,7 @@ class PingOutputHandler(PollEventHandler):
 
 
 class ServerSocketHandler(PollEventHandler):
-    def __init__(self, ip, port, ping_proc, epoll):
+    def __init__(self, ip, port, ping_proc, poll):
         _MAX_CONNECTION_BACKLOG = 1
 
         self.socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
@@ -288,9 +279,9 @@ class ServerSocketHandler(PollEventHandler):
         self.socket.listen(_MAX_CONNECTION_BACKLOG)
         self.socket.setblocking(0)
 
-        epoll.register(
+        poll.register(
                 self.socket.fileno(),
-                select.EPOLLIN | select.EPOLLERR,
+                select.POLLIN | select.POLLERR,
                 self)
 
         self.ping_proc = ping_proc
@@ -298,7 +289,7 @@ class ServerSocketHandler(PollEventHandler):
         self.start_time = time.time()
 
 
-    def handle_poll_event(self, epoll, fd, events):
+    def handle_poll_event(self, poll, fd, events):
         now_time = time.time()
         uptime = int(now_time - self.start_time)
 
@@ -322,18 +313,17 @@ class ServerSocketHandler(PollEventHandler):
                 client_socket,
                 address,
                 payload,
-                epoll)
+                poll)
 
 
 
 class ClientSocketHandler(PollEventHandler):
-    _epoll_flags = ( 0
-              | select.EPOLLOUT
-              | select.EPOLLERR
-              | select.EPOLLONESHOT
+    _poll_flags = ( 0
+              | select.POLLOUT
+              | select.POLLERR
     )
 
-    def __init__(self, client_socket, address, payload, epoll):
+    def __init__(self, client_socket, address, payload, poll):
         self.socket = client_socket
         self.address = address
         self.payload = payload
@@ -342,9 +332,9 @@ class ClientSocketHandler(PollEventHandler):
 
         self.send()
         if self.payload is not None:
-            epoll.register(
+            poll.register(
                     self.socket.fileno(),
-                    self.epoll_flags,
+                    self._poll_flags,
                     self)
         else:
 #            self.socket.shutdown(socket.SHUT_RDWR)
@@ -374,24 +364,19 @@ class ClientSocketHandler(PollEventHandler):
             debug("Sent ALL byte_count=%d, closed" % (sent_count))
 
 
-    def handle_poll_event(self, epoll, fd, events):
+    def handle_poll_event(self, poll, fd, events):
 
-        if events & select.EPOLLHUP == select.EPOLLHUP:
-            debug("event type EPOLLHUP, closing")
-            epoll.unregister(self.socket.fileno())
+        if events & select.POLLHUP == select.POLLHUP:
+            debug("event type POLLHUP, closing")
+            poll.unregister(self.socket.fileno())
             self.socket.close()
             return
 
-        if events & select.EPOLLOUT == select.EPOLLOUT:
+        if events & select.POLLOUT == select.POLLOUT:
             self.send()
-            if self.payload is not None:
-                debug("More to send, re-arming epoll")
-                epoll.modify(
-                        self.socket.fileno(),
-                        self.epoll_flags)
-            else:
+            if self.payload is None:
                 debug("Nothing to send, closing")
-                epoll.unregister(self.socket.fileno())
+                poll.unregister(self.socket.fileno())
 #                self.socket.shutdown(socket.SHUT_RDWR)
                 self.socket.close()
 
@@ -425,19 +410,19 @@ if bind_port <= 0 or bind_port >= (2**16):
     print("bind_port out of range: %d" % (bind_port))
     sys.exit(1)
 
-epoll = Epoll()
+poll = Poll()
 
 ping = PingOutputHandler(
         sys.stdin,
 #        host = sys.argv[1],
 #        interval = 0.5,
-        epoll = epoll)
+        poll = poll)
 
 server_socket = ServerSocketHandler(
         bind_host,
         bind_port,
         ping,
-        epoll)
+        poll)
 
 while True:
-    poll_results = epoll.poll()
+    poll_results = poll.poll()
