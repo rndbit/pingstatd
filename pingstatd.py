@@ -72,7 +72,7 @@ class Poll(object):
         del self.fd_handlers[fd]
 
 
-    def poll(self):
+    def poll_dispatch(self):
         poll_results = self.poll.poll()
 
         if len(poll_results) == 0:
@@ -425,4 +425,4 @@ server_socket = ServerSocketHandler(
         poll)
 
 while True:
-    poll_results = poll.poll()
+    poll_results = poll.poll_dispatch()
