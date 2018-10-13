@@ -26,8 +26,8 @@
 
 ##############################################################################
 
-# This script gets values from pingstatd.py daemon and makes them available
-# in format expected by MRTG
+# This script gets values from pingstatd.py daemon and outputs them in the
+# format expected by MRTG.
 
 ##############################################################################
 
