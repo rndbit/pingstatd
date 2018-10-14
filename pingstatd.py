@@ -336,7 +336,6 @@ class ClientSocketHandler(PollEventHandler):
 
         self.socket.setblocking(0)
 
-        self.send()
         if self.payload is not None:
             poll.register(
                     self.socket.fileno(),
