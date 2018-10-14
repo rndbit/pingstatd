@@ -359,8 +359,10 @@ class ClientSocketHandler(PollEventHandler):
                     type(ex).__name__,
                     traceback.format_exc(),
             ))
-            # trigger shutdown
+            # trigger this socket close and remove
             self.payload = None
+            # TODO log ex_message
+            return
 
         if sent_count < len(self.payload):
             debug("Sent bytes=%d of %d" % (sent_count, len(self.payload)))
