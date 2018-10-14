@@ -208,7 +208,8 @@ class PingOutputHandler(PollEventHandler):
             self.state = 1
 
             if len(self.data) > 0:
-                data_hex = binascii.hexlify(self.data)
+                data_hex = binascii.hexlify(
+                        self.data.encode('utf-8'))
                 debug("Data remains after reading header, pass to read_header(): \"%s\"" % (data_hex))
                 self.read_ping()
 
@@ -314,6 +315,7 @@ class ServerSocketHandler(PollEventHandler):
                     self.ping_proc.host,
                     self.ping_proc.address,
                     uptime)
+        payload = payload.encode('utf-8')
 
         ClientSocketHandler(
                 client_socket,
