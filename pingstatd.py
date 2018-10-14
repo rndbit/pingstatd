@@ -352,7 +352,11 @@ class ClientSocketHandler(PollEventHandler):
         try:
             sent_count = self.socket.send(self.payload)
         except socket.error, ex:
-            if ex.args[0] == errno.EWOULDBLOCK:
+            ex_errno = ex.args[0]
+            ex_message = ex.args[1]
+            # It should be impossible for errno to be errno.EAGAIN (or errno.EWOULDBLOCK)
+            # because this gets called when poll() notifies of event select.POLLOUT
+            if ex_errno == errno.EAGAIN or ex_errno == errno.EWOULDBLOCK:
                 debug("Hit would-block, ignoring")
                 return
             debug("Exception=%s send data: %s" % (
