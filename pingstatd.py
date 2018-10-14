@@ -193,7 +193,7 @@ class PingOutputHandler(PollEventHandler):
             header = self.data[0:lf_index]
             debug("Read header: \"%s\"" % (header))
 
-            match = re.search(r'^PING ([^ ]*) \(([^\)]*)\)', header)
+            match = re.search(r'^PING ([^ ]*) *\(([^\)]*)\)', header)
             if match is None:
                 sys.stderr.write('Could not match target IP address from ping output\n')
             else:
