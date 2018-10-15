@@ -436,7 +436,7 @@ class ClientSocketHandler(PollEventHandler):
         sent_count = None
         try:
             sent_count = self.socket.send(self.payload)
-        except socket.error, ex:
+        except socket.error as ex:
             ex_errno = ex.args[0]
             ex_message = ex.args[1]
             # It should be impossible for errno to be errno.EAGAIN (or errno.EWOULDBLOCK)
