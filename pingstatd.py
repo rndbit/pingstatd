@@ -122,6 +122,14 @@ class PollHelper(object):
 
 
 class PingOutputHandler(PollEventHandler):
+
+    _MATCH_HEADER_END = '\n'
+    _MATCH_PING_END = '\n'
+    _MATCH_REQUEST = '.'
+    _MATCH_RESPONSE_OK = '\x08\x20\x08'
+    _MATCH_RESPONSE_ERR = '\x08E'
+    _MATCH_BELL = '\x07'
+
     _poll_flags = ( 0
             | select.POLLIN
             | select.POLLERR
@@ -166,6 +174,19 @@ class PingOutputHandler(PollEventHandler):
                 self.ping_output.fileno(),
                 self._poll_flags,
                 self)
+
+        self._PING_MATCH_ACTIONS = {
+            self._MATCH_REQUEST:
+                self.handle_ping_request,
+            self._MATCH_RESPONSE_OK:
+                self.handle_ping_response,
+            self._MATCH_RESPONSE_ERR:
+                self.handle_ping_response_error,
+            self._MATCH_BELL:
+                self.handle_ping_bell,
+            self._MATCH_PING_END:
+                self.handle_ping_end,
+        }
 
 
     def handle_poll_event(self, poll, fd, events):
@@ -245,63 +266,71 @@ class PingOutputHandler(PollEventHandler):
 
         while len(self.data) > 0:
             if (VERB_LEVEL >= VERB_TRACE):
-                message("read_ping loop pass")
+                message("read_ping loop pass, data=\"\\x:%s\"" % (binascii.hexlify(self.data.encode('utf-8'))))
 
-            if self.data.startswith('.'):
+            for match, action in self._PING_MATCH_ACTIONS.items():
+                if self.data.startswith(match):
+                    self.data = self.data[len(match):]
+                    action()
+                    break
+            else:
+                # executed if the inner for loop did not break, i.e. did not match anything
+                message("handling garbage")
+                self.handle_ping_garbage()
+
+
+    def handle_ping_request(self):
                 self.ping_count += 1
-                self.data = self.data[1:]
                 if (VERB_LEVEL >= VERB_TRACE):
                     message("PING --> ping_count=%d, pong_count=%d, error_count=%d" % (self.ping_count, self.pong_count, self.error_count))
-                continue
-            if self.data.startswith('\x08\x20\x08'):
+
+
+    def handle_ping_response(self):
                 self.pong_count += 1
-                self.data = self.data[3:]
                 if (VERB_LEVEL >= VERB_TRACE):
                     message("PONG <-- ping_count=%d, pong_count=%d, error_count=%d" % (self.ping_count, self.pong_count, self.error_count))
-                continue
-            if self.data.startswith('\x08E'):
+
+
+    def handle_ping_response_error(self):
                 self.error_count += 1
-                self.data = self.data[2:]
                 if (VERB_LEVEL >= VERB_TRACE):
                     message("ERROR    ping_count=%d, pong_count=%d, error_count=%d" % (self.ping_count, self.pong_count, self.error_count))
-                continue
-            if self.data.startswith('\x07'):
-                self.data = self.data[1:]
+
+
+    def handle_ping_bell(self):
                 if (VERB_LEVEL >= VERB_TRACE):
                     message("DROP bell")
-                continue
-            if self.data.startswith('\n'):
-                self.data = self.data[1:]
+
+
+    def handle_ping_end(self):
                 if (VERB_LEVEL >= VERB_TRACE):
                     message("EOL, ending?!")
                 self.state = 2
                 self.read_footer()
-                return
 
+
+    def handle_ping_garbage(self):
             # If reached here then the buffer contains unexpected content
 
             # Try to recover
             # Find the first sequence of interest
             restart_index = len(self.data)
 
-            find_index = self.data.find('.', 1)
-            if find_index > 0:
-                restart_index = min(restart_index, find_index)
-
-            find_index = self.data.find('\x08', 1)
-            if find_index > 0:
-                restart_index = min(restart_index, find_index)
-
-            find_index = self.data.find('\x07', 1)
-            if find_index > 0:
-                restart_index = min(restart_index, find_index)
-
-            find_index = self.data.find('\n', 1)
-            if find_index > 0:
-                restart_index = min(restart_index, find_index)
+            for match in self._PING_MATCH_ACTIONS:
+                find_index = self.data.find(match, 1)
+                if find_index > 0:
+                    restart_index = min(restart_index, find_index)
 
             # Here restart_index is either the offset of the first byte sequence of interest
             # or it is equal to the length of the buffer (nothing of interest, discard all)
+
+            if restart_index <= 0: # WTF
+                if (VERB_LEVEL >= VERB_VERBOSE0):
+                    message("Failed to handle garbage, restart index=%d, data=%s" % (
+                            restart_index,
+                            binascii.hexlify(self.data.encode('utf-8')),
+                    ))
+                sys.exit(1)
 
             if (VERB_LEVEL >= VERB_VERBOSE0):
                 message("Discarding unexpected content len=%d of total %d bytes: \\x\"%s\"" % (
@@ -325,6 +354,7 @@ class PingOutputHandler(PollEventHandler):
         # TODO find LF first
         if (VERB_LEVEL >= VERB_TRACE):
             message("read footer: byte_count=%d data=\"%s\"" % (len(self.data), self.data))
+        self.data = ''
 
 
 class ServerSocketHandler(PollEventHandler):
