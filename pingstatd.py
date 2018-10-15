@@ -24,7 +24,6 @@
 # OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 # SOFTWARE.
 
-import subprocess
 import binascii
 import os
 import select
@@ -92,14 +91,12 @@ class Poll(object):
                 debug("Exception invoking handler in Poll.poll: %s" % (traceback.format_exc()))
 
 
-#class PingOutputHandler(subprocess.Popen, PollEventHandler):
 class PingOutputHandler(PollEventHandler):
     _poll_flags = ( 0
             | select.POLLIN
             | select.POLLERR
     )
 
-    #def __init__(self, host, interval, poll):
     def __init__(self, ping_output, poll):
 
         '''
@@ -120,37 +117,21 @@ class PingOutputHandler(PollEventHandler):
         self.pong_count = 0
         self.error_count = 0
 
-        """
-        ping_args = [
-            '/bin/ping',
-            '-f',
-          # Debug, remove later
-#          '-c', '3', # Count of packets, exit after those
-#          '-a',
-            '-i', str(interval),
-            '-n', host,
-        ]
-        super(PingOutputHandler, self).__init__(
-            args = ping_args,
-            bufsize = 0,
-            stdout = subprocess.PIPE)
-"""
-
-        self.stdout = ping_output
+        self.ping_output = ping_output
 
         ### Set non-blocking
         # Get the already set flags
         flags = fcntl.fcntl(
-                self.stdout.fileno(),
+                self.ping_output.fileno(),
                 fcntl.F_GETFL)
         # Change flags by adding NONBLOCK
         fcntl.fcntl(
-                self.stdout.fileno(),
+                self.ping_output.fileno(),
                 fcntl.F_SETFL,
                 flags | os.O_NONBLOCK)
 
         poll.register(
-                self.stdout.fileno(),
+                self.ping_output.fileno(),
                 self._poll_flags,
                 self)
 
@@ -162,7 +143,7 @@ class PingOutputHandler(PollEventHandler):
 
             data = None
             try:
-                data = self.stdout.read()
+                data = self.ping_output.read()
             except IOError:
                 debug("exception reading pings markers")
                 return
@@ -187,8 +168,6 @@ class PingOutputHandler(PollEventHandler):
 
         if events & select.POLLHUP == select.POLLHUP:
             debug("err event")
-            # Flush and destroy
-#            self.communicate()
             sys.exit(0)
 
 
@@ -414,8 +393,6 @@ poll = Poll()
 
 ping = PingOutputHandler(
         sys.stdin,
-#        host = sys.argv[1],
-#        interval = 0.5,
         poll = poll)
 
 server_socket = ServerSocketHandler(
