@@ -278,9 +278,10 @@ class PingOutputHandler(PollEventHandler):
                 self.read_footer()
                 return
 
-            if (VERB_LEVEL >= VERB_WARN):
-                message("Unexpected content, need to kill?: \"\\x:%s\"" % (self.data))
+            # If reached here then the buffer contains unexpected content
+
             # Try to recover
+            # Find the first sequence of interest
             restart_index = len(self.data)
 
             find_index = self.data.find('.', 1)
@@ -295,16 +296,29 @@ class PingOutputHandler(PollEventHandler):
             if find_index > 0:
                 restart_index = min(restart_index, find_index)
 
-            if (VERB_LEVEL >= VERB_WARN):
-                message("Discarding unexpected content: len=%d \\x\"%s\", \"%s\"" % (
+            find_index = self.data.find('\n', 1)
+            if find_index > 0:
+                restart_index = min(restart_index, find_index)
+
+            # Here restart_index is either the offset of the first byte sequence of interest
+            # or it is equal to the length of the buffer (nothing of interest, discard all)
+
+            if (VERB_LEVEL >= VERB_VERBOSE0):
+                message("Discarding unexpected content len=%d of total %d bytes: \\x\"%s\"" % (
                         restart_index,
-                        self.data[0:restart_index],
-                        self.data[0:restart_index])
-                )
+                        len(self.data),
+                        binascii.hexlify(self.data[0:restart_index].encode('utf-8')),
+                ))
             self.data = self.data[restart_index:]
 
-            if (VERB_LEVEL >= VERB_TRACE):
-                message("Keeping after unexpected content: \\x\"%s\", \"%s\"" % (self.data, self.data))
+            if (VERB_LEVEL >= VERB_VERBOSE0):
+                if len(self.data) > 0:
+                    message("Buffer after discarded content len=%d: \\x\"%s\"" % (
+                            len(self.data),
+                            binascii.hexlify(self.data.encode('utf-8')),
+                    ))
+                else:
+                    message("Buffer is empty after unexpected content discarded")
 
 
     def read_footer(self):
