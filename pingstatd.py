@@ -58,10 +58,23 @@ _EVENT_LOOKUP = {
 }
 
 
-def debug(msg):
-#    sys.stderr.write(msg)
-#    sys.stderr.write('\n')
-    pass
+# available levels
+VERB_NONE = 0
+VERB_ERR = 1
+VERB_WARN = 2
+VERB_INFO = 3
+VERB_VERBOSE0 = 5
+VERB_VERBOSE1 = 6
+VERB_VERBOSE2 = 7
+VERB_TRACE = 9
+
+# The current level
+# TODO set from args e.g. -v
+VERB_LEVEL = VERB_WARN
+
+def message(msg):
+    sys.stdout.write(msg)
+    sys.stdout.write('\n')
 
 
 class PollEventHandler(object):
@@ -89,20 +102,23 @@ class PollHelper(object):
         poll_results = self.poll.poll()
 
         if len(poll_results) == 0:
-            debug("Empty poll result")
+            if (VERB_LEVEL >= VERB_TRACE):
+                message("Empty poll result")
             return
 
         for fdwork in poll_results:
             fd = fdwork[0]
             events = fdwork[1]
             handler = self.fd_handlers[fd]
-            debug("Unblocked fd=%s, events=%s=[%r]" % (fd, events, _get_flag_names(events)))
+            if (VERB_LEVEL >= VERB_TRACE):
+                message("Unblocked fd=%s, events=%s=[%r]" % (fd, events, _get_flag_names(events)))
             try:
                 handler.handle_poll_event(self, fd, events)
             except SystemExit:
                 raise
             except:
-                debug("Exception invoking handler in PollHelper.poll_dispatch: %s" % (traceback.format_exc()))
+                if (VERB_LEVEL >= VERB_ERR):
+                    message("Exception invoking handler in PollHelper.poll_dispatch: %s" % (traceback.format_exc()))
 
 
 class PingOutputHandler(PollEventHandler):
@@ -155,13 +171,15 @@ class PingOutputHandler(PollEventHandler):
     def handle_poll_event(self, poll, fd, events):
 
         if events & select.POLLIN == select.POLLIN:
-            debug("read event")
+            if (VERB_LEVEL >= VERB_TRACE):
+                message("read event")
 
             data = None
             try:
                 data = self.ping_output.read()
             except IOError:
-                debug("exception reading pings markers")
+                if (VERB_LEVEL >= VERB_WARN):
+                    message("exception reading ping markers")
                 return
 
 #            data_old_hex = binascii.hexlify(self.data)
@@ -183,7 +201,8 @@ class PingOutputHandler(PollEventHandler):
                 raise Exception('Unpexted state: %d' % (self.state))
 
         if events & select.POLLHUP == select.POLLHUP:
-            debug("err event")
+            if (VERB_LEVEL >= VERB_TRACE):
+                message("POLLHUP event")
             sys.exit(0)
 
 
@@ -191,7 +210,8 @@ class PingOutputHandler(PollEventHandler):
         lf_index = self.data.find('\n')
         if (lf_index > -1):
             header = self.data[0:lf_index]
-            debug("Read header: \"%s\"" % (header))
+            if (VERB_LEVEL >= VERB_TRACE):
+                message("Read header: \"%s\"" % (header))
 
             match = re.search(r'^PING ([^ ]*) *\(([^\)]*)\)', header)
             if match is None:
@@ -199,10 +219,11 @@ class PingOutputHandler(PollEventHandler):
             else:
                 self.host = match.group(1)
                 self.address = match.group(2)
-                debug('From header matched: hostname=%s address=%s' % (
-                        self.host,
-                        self.address,
-                ))
+                if (VERB_LEVEL >= VERB_TRACE):
+                    message('From header matched: hostname=%s address=%s' % (
+                            self.host,
+                            self.address,
+                    ))
 
             self.data = self.data[lf_index+1:]
             self.state = 1
@@ -210,43 +231,52 @@ class PingOutputHandler(PollEventHandler):
             if len(self.data) > 0:
                 data_hex = binascii.hexlify(
                         self.data.encode('utf-8'))
-                debug("Data remains after reading header, pass to read_header(): \"%s\"" % (data_hex))
+                if (VERB_LEVEL >= VERB_TRACE):
+                    message("Data remains after reading header, pass to read_header(): \"%s\"" % (data_hex))
                 self.read_ping()
 
 
     def read_ping(self):
-        debug("read_ping")
+        if (VERB_LEVEL >= VERB_TRACE):
+            message("read_ping")
 
         while len(self.data) > 0:
-            debug("read_ping loop pass")
+            if (VERB_LEVEL >= VERB_TRACE):
+                message("read_ping loop pass")
 
             if self.data.startswith('.'):
                 self.ping_count += 1
                 self.data = self.data[1:]
-                debug("PING --> ping_count=%d, pong_count=%d, error_count=%d" % (self.ping_count, self.pong_count, self.error_count))
+                if (VERB_LEVEL >= VERB_TRACE):
+                    message("PING --> ping_count=%d, pong_count=%d, error_count=%d" % (self.ping_count, self.pong_count, self.error_count))
                 continue
             if self.data.startswith('\x08\x20\x08'):
                 self.pong_count += 1
                 self.data = self.data[3:]
-                debug("PONG <-- ping_count=%d, pong_count=%d, error_count=%d" % (self.ping_count, self.pong_count, self.error_count))
+                if (VERB_LEVEL >= VERB_TRACE):
+                    message("PONG <-- ping_count=%d, pong_count=%d, error_count=%d" % (self.ping_count, self.pong_count, self.error_count))
                 continue
             if self.data.startswith('\x08E'):
                 self.error_count += 1
                 self.data = self.data[2:]
-                debug("ERROR    ping_count=%d, pong_count=%d, error_count=%d" % (self.ping_count, self.pong_count, self.error_count))
+                if (VERB_LEVEL >= VERB_TRACE):
+                    message("ERROR    ping_count=%d, pong_count=%d, error_count=%d" % (self.ping_count, self.pong_count, self.error_count))
                 continue
             if self.data.startswith('\x07'):
                 self.data = self.data[1:]
-                debug("DROP bell")
+                if (VERB_LEVEL >= VERB_TRACE):
+                    message("DROP bell")
                 continue
             if self.data.startswith('\n'):
                 self.data = self.data[1:]
-                debug("EOL, ending?!")
+                if (VERB_LEVEL >= VERB_TRACE):
+                    message("EOL, ending?!")
                 self.state = 2
                 self.read_footer()
                 return
 
-            debug("Unexpected content, need to kill?: \"\\x:%s\"" % (self.data))
+            if (VERB_LEVEL >= VERB_WARN):
+                message("Unexpected content, need to kill?: \"\\x:%s\"" % (self.data))
             # Try to recover
             restart_index = len(self.data)
 
@@ -262,18 +292,22 @@ class PingOutputHandler(PollEventHandler):
             if find_index > 0:
                 restart_index = min(restart_index, find_index)
 
-            debug("Discarding unexpected content: len=%d \\x\"%s\", \"%s\"" % (
-                    restart_index,
-                    self.data[0:restart_index],
-                    self.data[0:restart_index])
-            )
+            if (VERB_LEVEL >= VERB_WARN):
+                message("Discarding unexpected content: len=%d \\x\"%s\", \"%s\"" % (
+                        restart_index,
+                        self.data[0:restart_index],
+                        self.data[0:restart_index])
+                )
             self.data = self.data[restart_index:]
-            debug("Keeping after unexpected content: \\x\"%s\", \"%s\"" % (self.data, self.data))
+
+            if (VERB_LEVEL >= VERB_TRACE):
+                message("Keeping after unexpected content: \\x\"%s\", \"%s\"" % (self.data, self.data))
 
 
     def read_footer(self):
         # TODO find LF first
-        debug("read footer: byte_count=%d data=\"%s\"" % (len(self.data), self.data))
+        if (VERB_LEVEL >= VERB_TRACE):
+            message("read footer: byte_count=%d data=\"%s\"" % (len(self.data), self.data))
 
 
 class ServerSocketHandler(PollEventHandler):
@@ -358,29 +392,34 @@ class ClientSocketHandler(PollEventHandler):
             # It should be impossible for errno to be errno.EAGAIN (or errno.EWOULDBLOCK)
             # because this gets called when poll() notifies of event select.POLLOUT
             if ex_errno == errno.EAGAIN or ex_errno == errno.EWOULDBLOCK:
-                debug("Hit would-block, ignoring")
+                if (VERB_LEVEL >= VERB_TRACE):
+                    message("Hit would-block, ignoring")
                 return
-            debug("Exception=%s send data: %s" % (
-                    type(ex).__name__,
-                    traceback.format_exc(),
-            ))
+            if (VERB_LEVEL >= VERB_TRACE):
+                message("Exception=%s send data: %s" % (
+                        type(ex).__name__,
+                        traceback.format_exc(),
+                ))
             # trigger this socket close and remove
             self.payload = None
             # TODO log ex_message
             return
 
         if sent_count < len(self.payload):
-            debug("Sent bytes=%d of %d" % (sent_count, len(self.payload)))
+            if (VERB_LEVEL >= VERB_TRACE):
+                message("Sent bytes=%d of %d" % (sent_count, len(self.payload)))
             self.payload = self.payload[sent_count:]
         else:
             self.payload = None
-            debug("Sent ALL byte_count=%d, closed" % (sent_count))
+            if (VERB_LEVEL >= VERB_TRACE):
+                message("Sent ALL byte_count=%d, closed" % (sent_count))
 
 
     def handle_poll_event(self, poll, fd, events):
 
         if events & select.POLLHUP == select.POLLHUP:
-            debug("event type POLLHUP, closing")
+            if (VERB_LEVEL >= VERB_VERBOSE0):
+                message("event type POLLHUP, closing")
             poll.unregister(self.socket.fileno())
             self.socket.close()
             return
@@ -388,7 +427,8 @@ class ClientSocketHandler(PollEventHandler):
         if events & select.POLLOUT == select.POLLOUT:
             self.send()
             if self.payload is None:
-                debug("Nothing to send, closing")
+                if (VERB_LEVEL >= VERB_VERBOSE0):
+                    message("Nothing to send, closing")
                 poll.unregister(self.socket.fileno())
 #                self.socket.shutdown(socket.SHUT_RDWR)
                 self.socket.close()
