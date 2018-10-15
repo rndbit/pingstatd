@@ -203,10 +203,6 @@ class PingOutputHandler(PollEventHandler):
                     message("exception reading ping markers")
                 return
 
-#            data_old_hex = binascii.hexlify(self.data)
-#            data_new_hex = binascii.hexlify(data)
-#            debug("data old+new: {0}+{1}".format(data_old_hex, data_new_hex))
-
             self.data += data
 
             if self.state == 0:
