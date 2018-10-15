@@ -1,0 +1,12 @@
+# This code exists in branches for supporting different python versions.
+# The project aims to have as few python version support branches as possible,
+# so python version branches are created where otherwise would be impossible
+# or would lead to unreasonably complicated or messy code.
+# The project aims to have the python version branches as similar as possible,
+# which has some consequences:
+#  - not using new APIs, e.g. using poll and not the superior epoll
+#  - should explain some backward code
+#
+# Initialy this code aimed to work with python version starting with 2.4.
+# Supporting 2.4 and 3.5 seemed impossible, or unreasonably complicated.
+# One reason is incompatible exception handling syntax.
