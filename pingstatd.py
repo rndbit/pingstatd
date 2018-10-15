@@ -215,11 +215,14 @@ class PingOutputHandler(PollEventHandler):
 
             match = re.search(r'^PING ([^ ]*) *\(([^\)]*)\)', header)
             if match is None:
-                sys.stderr.write('Could not match target IP address from ping output\n')
+                msg = 'Could not match target IP address from ping output'
+                sys.stderr.write(msg + '\n')
+                if (VERB_LEVEL >= VERB_WARN):
+                    message(msg)
             else:
                 self.host = match.group(1)
                 self.address = match.group(2)
-                if (VERB_LEVEL >= VERB_TRACE):
+                if (VERB_LEVEL >= VERB_INFO):
                     message('From header matched: hostname=%s address=%s' % (
                             self.host,
                             self.address,
@@ -335,6 +338,13 @@ class ServerSocketHandler(PollEventHandler):
         uptime = int(now_time - self.start_time)
 
         client_socket, address = self.socket.accept()
+
+        if (VERB_LEVEL >= VERB_VERBOSE0):
+            message("Accepted fd=%d socket_peer=%s" % (
+                    client_socket.fileno(),
+                    str(client_socket.getpeername()),
+            ))
+
         payload = ( ""
                 + "request_count=%d\n"
                 + "response_count=%d\n"
@@ -419,7 +429,10 @@ class ClientSocketHandler(PollEventHandler):
 
         if events & select.POLLHUP == select.POLLHUP:
             if (VERB_LEVEL >= VERB_VERBOSE0):
-                message("event type POLLHUP, closing")
+                message("Closing fd=%d socket_peer=%s due to event type POLLHUP: %s" % (
+                        self.socket.fileno(),
+                        str(self.socket.getpeername()),
+                ))
             poll.unregister(self.socket.fileno())
             self.socket.close()
             return
@@ -428,7 +441,10 @@ class ClientSocketHandler(PollEventHandler):
             self.send()
             if self.payload is None:
                 if (VERB_LEVEL >= VERB_VERBOSE0):
-                    message("Nothing to send, closing")
+                    message("Closing fd=%d socket_peer=%s" % (
+                            self.socket.fileno(),
+                            str(self.socket.getpeername()),
+                    ))
                 poll.unregister(self.socket.fileno())
 #                self.socket.shutdown(socket.SHUT_RDWR)
                 self.socket.close()
