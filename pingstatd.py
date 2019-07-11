@@ -4,7 +4,7 @@
 
 # MIT License
 #
-# Copyright (c) 2018 rndbit
+# Copyright (c) 2018-2019 rndbit
 #
 # Permission is hereby granted, free of charge, to any person obtaining a copy
 # of this software and associated documentation files (the "Software"), to deal
@@ -29,12 +29,24 @@
 # This program is for keeping counts of sent and received ping packets.
 #
 # It is designed to work together with `ping` executable, started with -f arg.
-# It reads ping's stdout via pipe from its stdin.
-# The counts can be collected by connecting to it via TCP.
-#   e.g. start with
-# ping -f -i 5 example.com | pingstatd.py 127.0.1.1 PORT
-#   collect counts
-# nc 127.0.1.1 PORT
+# It:
+#  * reads from stdin the data produced by ping on its stdout.
+#  * listens on a specified TCP or UNIX or ABSTRACT socket to provide results.
+#  * can act as a client when started with '-g' or '--get' arg to connect to
+#    the daemon to collect the results.
+#
+# Examples of starting a daemon:
+#  $ ping -f -i 5 example.com | pingstatd.py --tcp 127.0.1.1:2345
+#  $ pingstatd.py --unix /var/run/pingstatd/example.com < <( ping -f -i 5 example.com )
+#  $ pingstatd.py --abstract pingstatd/example.com < <( ping -f -i 5 example.com )
+#
+# Examples of collecting counts
+#  $ pingstatd --get --tcp localhost:2345
+#  $ pingstatd --unix /var/run/pingstatd/example.com --get
+#  $ pingstatd --abstract /var/run/pingstatd/example.com -g
+#  $ cat < /dev/tcp/127.0.1.1/2345
+#  $ nc 127.0.1.1 2345
+#  $ socat ABSTRACT-CONNECT:pingstatd/example.com -
 
 
 import binascii
@@ -47,6 +59,7 @@ import traceback
 import errno
 import time
 import re
+import optparse
 
 
 _EVENT_LOOKUP = {
@@ -82,10 +95,18 @@ class PollEventHandler(object):
         raise Exception("method not implemented: handle_poll_event")
 
 
+    def poll_register(self, poll):
+        raise Exception("method not implemented: poll_register")
+
+
 class PollHelper(object):
     def __init__(self):
         self.poll = select.poll()
         self.fd_handlers = {}
+
+
+    def get_fd_count(self):
+        return len(self.fd_handlers)
 
 
     def register(self, fd, flags, handler = None):
@@ -135,7 +156,8 @@ class PingOutputHandler(PollEventHandler):
             | select.POLLERR
     )
 
-    def __init__(self, ping_output, poll):
+
+    def __init__(self, ping_output):
 
         '''
         0 - created, reading header line to get started
@@ -170,11 +192,6 @@ class PingOutputHandler(PollEventHandler):
                 fcntl.F_SETFL,
                 flags | os.O_NONBLOCK)
 
-        poll.register(
-                self.ping_output.fileno(),
-                self._poll_flags,
-                self)
-
         self._PING_MATCH_ACTIONS = {
             self._MATCH_REQUEST:
                 self.handle_ping_request,
@@ -187,6 +204,14 @@ class PingOutputHandler(PollEventHandler):
             self._MATCH_PING_END:
                 self.handle_ping_end,
         }
+
+
+    def poll_register(self, poll):
+        poll.register(
+                self.ping_output.fileno(),
+                self._poll_flags,
+                self,
+                )
 
 
     def handle_poll_event(self, poll, fd, events):
@@ -354,23 +379,24 @@ class PingOutputHandler(PollEventHandler):
 
 
 class ServerSocketHandler(PollEventHandler):
-    def __init__(self, ip, port, ping_proc, poll):
+    def __init__(self, socket, ping_proc):
         _MAX_CONNECTION_BACKLOG = 1
 
-        self.socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-        self.socket.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
-        self.socket.bind((ip, port))
+        self.socket = socket
         self.socket.listen(_MAX_CONNECTION_BACKLOG)
         self.socket.setblocking(0)
-
-        poll.register(
-                self.socket.fileno(),
-                select.POLLIN | select.POLLERR,
-                self)
 
         self.ping_proc = ping_proc
 
         self.start_time = time.time()
+
+
+    def poll_register(self, poll):
+        poll.register(
+                self.socket.fileno(),
+                select.POLLIN | select.POLLERR,
+                self,
+                )
 
 
     def handle_poll_event(self, poll, fd, events):
@@ -401,11 +427,13 @@ class ServerSocketHandler(PollEventHandler):
                     uptime)
         payload = payload.encode('utf-8')
 
-        ClientSocketHandler(
+        cs_handler = ClientSocketHandler(
                 client_socket,
                 address,
                 payload,
-                poll)
+                )
+
+        cs_handler.poll_register(poll)
 
 
 
@@ -415,13 +443,15 @@ class ClientSocketHandler(PollEventHandler):
               | select.POLLERR
     )
 
-    def __init__(self, client_socket, address, payload, poll):
+    def __init__(self, client_socket, address, payload):
         self.socket = client_socket
         self.address = address
         self.payload = payload
 
         self.socket.setblocking(0)
 
+
+    def poll_register(self, poll):
         if self.payload is not None:
             poll.register(
                     self.socket.fileno(),
@@ -469,7 +499,7 @@ class ClientSocketHandler(PollEventHandler):
 
         if events & select.POLLHUP == select.POLLHUP:
             if (VERB_LEVEL >= VERB_VERBOSE0):
-                message("Closing fd=%d socket_peer=%s due to event type POLLHUP: %s" % (
+                message("Closing fd=%d socket_peer=%s due to event type POLLHUP" % (
                         self.socket.fileno(),
                         str(self.socket.getpeername()),
                 ))
@@ -503,33 +533,115 @@ def _get_flag_names(flags):
     return names
 
 
-if len(sys.argv) != 3:
-    print("invalid args, need: prog bind_host bind_to_port")
-    sys.exit(1)
+def parse_tcp_address(value):
+    match = re.match(r'^(?P<host>.*):(?P<port>[0-9]+)$', value)
+    if match is None:
+        msg = 'Could not parse host:port from: "%s"' % (value)
+        sys.stderr.write(msg + '\n')
+        if (VERB_LEVEL >= VERB_WARN):
+            message(msg)
+        sys.exit(1)
+    else:
+        host = match.group('host')
+        port = (int)(match.group('port'))
 
-bind_host = sys.argv[1]
-bind_port = sys.argv[2]
-try:
-    bind_port = (int)(bind_port)
-except:
-    print("invalid bind_port: %d" % (bind_port))
-    sys.exit(1)
+        if port <= 0 or port >= (2**16):
+            msg = 'TCP port out of range: %d' % (port)
+            sys.stderr.write(msg + '\n')
+            if (VERB_LEVEL >= VERB_WARN):
+                message(msg)
+            sys.exit(1)
 
-if bind_port <= 0 or bind_port >= (2**16):
-    print("bind_port out of range: %d" % (bind_port))
-    sys.exit(1)
+        return ( host, port )
 
-poll = PollHelper()
 
-ping = PingOutputHandler(
+op = optparse.OptionParser(
+        usage='usage: %prog [options]',
+        )
+op.add_option('-t', '--tcp', dest='tcp_socket',
+        help='use tcp socket; <host>:<port> e.g. localhost:2345',
+        default=None,
+        )
+op.add_option('-u', '--unix', dest='unix_socket',
+        help='use unix domain socket; <path>, e.g. /tmp/pintstatdr_example.com',
+        default=None,
+        )
+op.add_option('-a', '--abstract', dest='abstract_socket',
+        help='use abstract socket; <name>, e.g. pintstatdr_example.com',
+        default=None,
+        )
+op.add_option('-g', '--get', dest='get', action="store_true",
+        help='connect to deamon and output values, do not start a daemon',
+        default=False,
+        )
+op.add_option('-v', dest='verb_level', action="count",
+        help='increase verbosity',
+        default=VERB_WARN,
+        )
+
+(options, args) = op.parse_args()
+
+VERB_LEVEL = options.verb_level
+
+# If working as a client
+if options.get:
+    dest = None
+    if options.tcp_socket is not None:
+        dest = parse_tcp_address(options.tcp_socket)
+        c_socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+    elif options.unix_socket is not None:
+        dest = options.unix_socket
+        c_socket = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
+    elif options.abstract_socket is not None:
+        dest = "\0" + options.abstract_socket
+        c_socket = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
+
+    try:
+        c_socket.connect(dest)
+    except socket.error, ex:
+        sys.stderr.write(str(ex) + "\n")
+        sys.exit(1)
+
+    data = c_socket.recv(4096)
+    while data:
+        sys.stdout.write(data)
+        data = c_socket.recv(4096)
+
+# If working as a daemon
+else:
+    bind = None
+    if options.tcp_socket is not None:
+        bind = parse_tcp_address(options.tcp_socket)
+        s_socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+        s_socket.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+    elif options.unix_socket is not None:
+        bind = options.unix_socket
+        if os.path.exists(options.unix_socket):
+            os.unlink(options.unix_socket)
+        s_socket = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
+    elif options.abstract_socket is not None:
+        bind = "\0" + options.abstract_socket
+        s_socket = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
+
+    try:
+        s_socket.bind(bind)
+    except socket.error, ex:
+        sys.stderr.write(str(ex) + "\n")
+        sys.exit(1)
+
+    poll = PollHelper()
+
+    ping = PingOutputHandler(
         sys.stdin,
-        poll = poll)
+        )
 
-server_socket = ServerSocketHandler(
-        bind_host,
-        bind_port,
+    server_socket = ServerSocketHandler(
+        s_socket,
         ping,
-        poll)
+        )
 
-while True:
-    poll.poll_dispatch()
+    ping.poll_register(poll)
+    server_socket.poll_register(poll)
+
+    while poll.get_fd_count() > 0:
+        poll.poll_dispatch()

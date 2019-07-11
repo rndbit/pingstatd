@@ -50,7 +50,8 @@ INDATA=UNKNOWN
 OUTDATA=UNKNOWN
 UPTIME_SECONDS=0
 
-if vars=$( nc ${DAEMON_HOST} ${DAEMON_PORT} < /dev/null ) ;
+#if vars=$( nc ${DAEMON_HOST} ${DAEMON_PORT} < /dev/null ) ;
+if vars=$( cat < /dev/tcp/${DAEMON_HOST}/${DAEMON_PORT} ) ;
 then
   <<-EXAMPLE
 	request_count=12
