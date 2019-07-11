@@ -4,7 +4,7 @@
 
 # MIT License
 #
-# Copyright (c) 2018 rndbit
+# Copyright (c) 2018-2019 rndbit
 #
 # Permission is hereby granted, free of charge, to any person obtaining a copy
 # of this software and associated documentation files (the "Software"), to deal
@@ -29,12 +29,24 @@
 # This program is for keeping counts of sent and received ping packets.
 #
 # It is designed to work together with `ping` executable, started with -f arg.
-# It reads ping's stdout via pipe from its stdin.
-# The counts can be collected by connecting to it via TCP.
-#   e.g. start with
-# ping -f -i 5 example.com | pingstatd.py 127.0.1.1 PORT
-#   collect counts
-# nc 127.0.1.1 PORT
+# It:
+#  * reads from stdin the data produced by ping on its stdout.
+#  * listens on a specified TCP or UNIX or ABSTRACT socket to provide results.
+#  * can act as a client when started with '-g' or '--get' arg to connect to
+#    the daemon to collect the results.
+#
+# Examples of starting a daemon:
+#  $ ping -f -i 5 example.com | pingstatd.py --tcp 127.0.1.1:2345
+#  $ pingstatd.py --unix /var/run/pingstatd/example.com < <( ping -f -i 5 example.com )
+#  $ pingstatd.py --abstract pingstatd/example.com < <( ping -f -i 5 example.com )
+#
+# Examples of collecting counts
+#  $ pingstatd --get --tcp localhost:2345
+#  $ pingstatd --unix /var/run/pingstatd/example.com --get
+#  $ pingstatd --abstract /var/run/pingstatd/example.com -g
+#  $ cat < /dev/tcp/127.0.1.1/2345
+#  $ nc 127.0.1.1 2345
+#  $ socat ABSTRACT-CONNECT:pingstatd/example.com -
 
 
 import binascii
