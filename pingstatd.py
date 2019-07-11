@@ -47,6 +47,7 @@ import traceback
 import errno
 import time
 import re
+import optparse
 
 
 _EVENT_LOOKUP = {
@@ -354,12 +355,10 @@ class PingOutputHandler(PollEventHandler):
 
 
 class ServerSocketHandler(PollEventHandler):
-    def __init__(self, ip, port, ping_proc, poll):
+    def __init__(self, socket, ping_proc, poll):
         _MAX_CONNECTION_BACKLOG = 1
 
-        self.socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-        self.socket.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
-        self.socket.bind((ip, port))
+        self.socket = socket
         self.socket.listen(_MAX_CONNECTION_BACKLOG)
         self.socket.setblocking(0)
 
@@ -503,33 +502,112 @@ def _get_flag_names(flags):
     return names
 
 
-if len(sys.argv) != 3:
-    print("invalid args, need: prog bind_host bind_to_port")
-    sys.exit(1)
+def parse_tcp_address(value):
+    match = re.match(r'^(?P<host>.*):(?P<port>[0-9]+)$', value)
+    if match is None:
+        msg = 'Could not parse host:port from: "%s"' % (value)
+        sys.stderr.write(msg + '\n')
+        if (VERB_LEVEL >= VERB_WARN):
+            message(msg)
+        sys.exit(1)
+    else:
+        host = match.group('host')
+        port = (int)(match.group('port'))
 
-bind_host = sys.argv[1]
-bind_port = sys.argv[2]
-try:
-    bind_port = (int)(bind_port)
-except:
-    print("invalid bind_port: %d" % (bind_port))
-    sys.exit(1)
+        if port <= 0 or port >= (2**16):
+            msg = 'TCP port out of range: %d' % (port)
+            sys.stderr.write(msg + '\n')
+            if (VERB_LEVEL >= VERB_WARN):
+                message(msg)
+            sys.exit(1)
 
-if bind_port <= 0 or bind_port >= (2**16):
-    print("bind_port out of range: %d" % (bind_port))
-    sys.exit(1)
+        return ( host, port )
 
-poll = PollHelper()
 
-ping = PingOutputHandler(
+op = optparse.OptionParser(
+        usage='usage: %prog [options]',
+        )
+op.add_option('-t', '--tcp', dest='tcp_socket',
+        help='use tcp socket; <host>:<port> e.g. localhost:2345',
+        default=None,
+        )
+op.add_option('-u', '--unix', dest='unix_socket',
+        help='use unix domain socket; <path>, e.g. /tmp/pintstatdr_example.com',
+        default=None,
+        )
+op.add_option('-a', '--abstract', dest='abstract_socket',
+        help='use abstract socket; <name>, e.g. pintstatdr_example.com',
+        default=None,
+        )
+op.add_option('-g', '--get', dest='get', action="store_true",
+        help='connect to deamon and output values, do not start a daemon',
+        default=False,
+        )
+op.add_option('-v', dest='verb_level', action="count",
+        help='increase verbosity',
+        default=VERB_WARN,
+        )
+
+(options, args) = op.parse_args()
+
+VERB_LEVEL = options.verb_level
+
+# If working as a client
+if options.get:
+    dest = None
+    if options.tcp_socket is not None:
+        dest = parse_tcp_address(options.tcp_socket)
+        c_socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+    elif options.unix_socket is not None:
+        dest = options.unix_socket
+        c_socket = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
+    elif options.abstract_socket is not None:
+        dest = "\0" + options.abstract_socket
+        c_socket = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
+
+    try:
+        c_socket.connect(dest)
+    except socket.error, ex:
+        sys.stderr.write(str(ex) + "\n")
+        sys.exit(1)
+
+    data = c_socket.recv(4096)
+    while data:
+        sys.stdout.write(data)
+        data = c_socket.recv(4096)
+
+# If working as a daemon
+else:
+    bind = None
+    if options.tcp_socket is not None:
+        bind = parse_tcp_address(options.tcp_socket)
+        s_socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+        s_socket.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+    elif options.unix_socket is not None:
+        bind = options.unix_socket
+        if os.path.exists(options.unix_socket):
+            os.unlink(options.unix_socket)
+        s_socket = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
+    elif options.abstract_socket is not None:
+        bind = "\0" + options.abstract_socket
+        s_socket = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
+
+    try:
+        s_socket.bind(bind)
+    except socket.error, ex:
+        sys.stderr.write(str(ex) + "\n")
+        sys.exit(1)
+
+    poll = PollHelper()
+
+    ping = PingOutputHandler(
         sys.stdin,
         poll = poll)
 
-server_socket = ServerSocketHandler(
-        bind_host,
-        bind_port,
+    server_socket = ServerSocketHandler(
+        s_socket,
         ping,
         poll)
 
-while True:
-    poll.poll_dispatch()
+    while True:
+        poll.poll_dispatch()
