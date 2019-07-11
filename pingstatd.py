@@ -105,6 +105,10 @@ class PollHelper(object):
         self.fd_handlers = {}
 
 
+    def get_fd_count(self):
+        return len(self.fd_handlers)
+
+
     def register(self, fd, flags, handler = None):
         self.poll.register(fd, flags)
         self.fd_handlers[fd] = handler
@@ -639,5 +643,5 @@ else:
     ping.poll_register(poll)
     server_socket.poll_register(poll)
 
-    while True:
+    while poll.get_fd_count() > 0:
         poll.poll_dispatch()
