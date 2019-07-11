@@ -598,7 +598,7 @@ if options.get:
 
     try:
         c_socket.connect(dest)
-    except socket.error, ex:
+    except socket.error as ex:
         sys.stderr.write(str(ex) + "\n")
         sys.exit(1)
 
@@ -625,7 +625,7 @@ else:
 
     try:
         s_socket.bind(bind)
-    except socket.error, ex:
+    except socket.error as ex:
         sys.stderr.write(str(ex) + "\n")
         sys.exit(1)
 
