@@ -4,7 +4,7 @@
 
 # MIT License
 #
-# Copyright (c) 2018 rndbit
+# Copyright (c) 2018-2019 rndbit
 #
 # Permission is hereby granted, free of charge, to any person obtaining a copy
 # of this software and associated documentation files (the "Software"), to deal
@@ -33,11 +33,23 @@
 
 ARGS=( "$@" )
 
-declare -r DAEMON_HOST=${ARGS[0]}
-declare -r DAEMON_PORT=${ARGS[1]}
+declare -r PING_HOST="${ARGS[0]}"
+declare -r PING_INTERVAL="${ARGS[1]}"
 
-declare -r PING_HOST=${ARGS[2]}
-declare -r PING_INTERVAL=${ARGS[3]}
+declare -r DAEMON_SOCKET_TYPE="${ARGS[2]}" # e.g. --tcp or --unix or --abstract
+declare -r DAEMON_SOCKET_NAME="${ARGS[3]}" # e.g. 127.0.0.1:2345
+
+if [ -z "${DAEMON_SOCKET_TYPE}" ]; then
+  declare -a DAEMON_SOCKET_ARGS=(
+    --abstract
+    "pingstatd:${PING_HOST}:${PING_INTERVAL}"
+  )
+else
+  declare -a DAEMON_SOCKET_ARGS=(
+    "${DAEMON_SOCKET_TYPE}"
+    "${DAEMON_SOCKET_NAME}"
+  )
+fi
 
 ##############################################################################
 
@@ -50,8 +62,7 @@ INDATA=UNKNOWN
 OUTDATA=UNKNOWN
 UPTIME_SECONDS=0
 
-#if vars=$( nc ${DAEMON_HOST} ${DAEMON_PORT} < /dev/null ) ;
-if vars=$( cat < /dev/tcp/${DAEMON_HOST}/${DAEMON_PORT} ) ;
+if vars=$( pingstatd.py --get "${DAEMON_SOCKET_ARGS[@]}" ) ;
 then
   <<-EXAMPLE
 	request_count=12
@@ -87,10 +98,7 @@ else # failed to obtain values from the pingstatd.py daemon
   # as opposed to when using a simple pipeline `ping | pingstatd.py | logger`
   # where all 3 process become orphaned by the shell and adopted by `init`
   logger -t "pingstatd_${PING_HOST}" < <(
-    SCRIPT_DIR=$( d=$( readlink -f "${BASH_SOURCE[0]}" ); echo "${d%/*}" )
-    PATH="${PATH}:${SCRIPT_DIR}:."
-
-    exec pingstatd.py ${DAEMON_HOST} ${DAEMON_PORT} 2>&1 < <(
+    exec pingstatd.py "${DAEMON_SOCKET_ARGS[@]}" 2>&1 < <(
       exec ping -f -i ${PING_INTERVAL} ${PING_HOST}
     )
   ) &
