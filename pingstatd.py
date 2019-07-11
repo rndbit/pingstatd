@@ -480,7 +480,7 @@ class ClientSocketHandler(PollEventHandler):
 
         if events & select.POLLHUP == select.POLLHUP:
             if (VERB_LEVEL >= VERB_VERBOSE0):
-                message("Closing fd=%d socket_peer=%s due to event type POLLHUP: %s" % (
+                message("Closing fd=%d socket_peer=%s due to event type POLLHUP" % (
                         self.socket.fileno(),
                         str(self.socket.getpeername()),
                 ))
