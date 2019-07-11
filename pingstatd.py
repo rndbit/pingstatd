@@ -95,6 +95,10 @@ class PollEventHandler(object):
         raise Exception("method not implemented: handle_poll_event")
 
 
+    def poll_register(self, poll):
+        raise Exception("method not implemented: poll_register")
+
+
 class PollHelper(object):
     def __init__(self):
         self.poll = select.poll()
@@ -148,7 +152,8 @@ class PingOutputHandler(PollEventHandler):
             | select.POLLERR
     )
 
-    def __init__(self, ping_output, poll):
+
+    def __init__(self, ping_output):
 
         '''
         0 - created, reading header line to get started
@@ -183,11 +188,6 @@ class PingOutputHandler(PollEventHandler):
                 fcntl.F_SETFL,
                 flags | os.O_NONBLOCK)
 
-        poll.register(
-                self.ping_output.fileno(),
-                self._poll_flags,
-                self)
-
         self._PING_MATCH_ACTIONS = {
             self._MATCH_REQUEST:
                 self.handle_ping_request,
@@ -200,6 +200,14 @@ class PingOutputHandler(PollEventHandler):
             self._MATCH_PING_END:
                 self.handle_ping_end,
         }
+
+
+    def poll_register(self, poll):
+        poll.register(
+                self.ping_output.fileno(),
+                self._poll_flags,
+                self,
+                )
 
 
     def handle_poll_event(self, poll, fd, events):
@@ -367,21 +375,24 @@ class PingOutputHandler(PollEventHandler):
 
 
 class ServerSocketHandler(PollEventHandler):
-    def __init__(self, socket, ping_proc, poll):
+    def __init__(self, socket, ping_proc):
         _MAX_CONNECTION_BACKLOG = 1
 
         self.socket = socket
         self.socket.listen(_MAX_CONNECTION_BACKLOG)
         self.socket.setblocking(0)
 
-        poll.register(
-                self.socket.fileno(),
-                select.POLLIN | select.POLLERR,
-                self)
-
         self.ping_proc = ping_proc
 
         self.start_time = time.time()
+
+
+    def poll_register(self, poll):
+        poll.register(
+                self.socket.fileno(),
+                select.POLLIN | select.POLLERR,
+                self,
+                )
 
 
     def handle_poll_event(self, poll, fd, events):
@@ -412,11 +423,13 @@ class ServerSocketHandler(PollEventHandler):
                     uptime)
         payload = payload.encode('utf-8')
 
-        ClientSocketHandler(
+        cs_handler = ClientSocketHandler(
                 client_socket,
                 address,
                 payload,
-                poll)
+                )
+
+        cs_handler.poll_register(poll)
 
 
 
@@ -426,13 +439,15 @@ class ClientSocketHandler(PollEventHandler):
               | select.POLLERR
     )
 
-    def __init__(self, client_socket, address, payload, poll):
+    def __init__(self, client_socket, address, payload):
         self.socket = client_socket
         self.address = address
         self.payload = payload
 
         self.socket.setblocking(0)
 
+
+    def poll_register(self, poll):
         if self.payload is not None:
             poll.register(
                     self.socket.fileno(),
@@ -614,12 +629,15 @@ else:
 
     ping = PingOutputHandler(
         sys.stdin,
-        poll = poll)
+        )
 
     server_socket = ServerSocketHandler(
         s_socket,
         ping,
-        poll)
+        )
+
+    ping.poll_register(poll)
+    server_socket.poll_register(poll)
 
     while True:
         poll.poll_dispatch()
