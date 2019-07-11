@@ -98,9 +98,6 @@ else # failed to obtain values from the pingstatd.py daemon
   # as opposed to when using a simple pipeline `ping | pingstatd.py | logger`
   # where all 3 process become orphaned by the shell and adopted by `init`
   logger -t "pingstatd_${PING_HOST}" < <(
-    SCRIPT_DIR=$( d=$( readlink -f "${BASH_SOURCE[0]}" ); echo "${d%/*}" )
-    PATH="${PATH}:${SCRIPT_DIR}:."
-
     exec pingstatd.py "${DAEMON_SOCKET_ARGS[@]}" 2>&1 < <(
       exec ping -f -i ${PING_INTERVAL} ${PING_HOST}
     )
