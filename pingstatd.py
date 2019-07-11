@@ -82,7 +82,6 @@ VERB_VERBOSE2 = 7
 VERB_TRACE = 9
 
 # The current level
-# TODO set from args e.g. -v
 VERB_LEVEL = VERB_WARN
 
 def message(msg):
