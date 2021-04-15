@@ -106,7 +106,7 @@ else # failed to obtain values from the pingstatd.py daemon
 fi
 
 printf -v TARGET_NAME \
-    "ping %s (%s) every %d seconds" \
+    "ping %s (%s) every %s seconds" \
     "${PING_HOST}" "${address}" "${PING_INTERVAL}"
 
 printf "%s\n%s\n%s\n%s\n" \
