@@ -91,6 +91,12 @@ else # failed to obtain values from the pingstatd.py daemon
   # need to start
   echo starting pingstat_${PING_HOST} 1>&2
 
+  # About to start daemon.
+  # close stdout and stderr to detach from cron parent process and allow it and
+  # its sendmail to finish
+  exec 1>&-
+  exec 2>&-
+
   # connecting stdin with this construct '< <()' has a minute advantage that
   # `pingstatd.py` ends up being a child process of `logger`
   # and `ping` the child process of `pingstatd.py`
