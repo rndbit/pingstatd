@@ -74,7 +74,7 @@ then
 	EXAMPLE
 
   # validate $vars content for safety to be `eval`ed
-  if grep -vqE "^ *[_[:alnum:]]*=(([\"'])?)[-_\.[:alnum:]]*\1$" <<<"${vars}";
+  if grep -vqE "^ *[_[:alnum:]]*=(([\"'])?)[-_\.:[:alnum:]]*\1$" <<<"${vars}";
   then # Not Safe
     (
       IFS=$'\n'
